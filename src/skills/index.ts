@@ -1,88 +1,75 @@
-// Skills — tools the agent can call during a conversation turn.
-// Each skill maps to a CF Workers AI tool definition.
-// Add new skills here; they're automatically available to the agent.
+// Skills — CF Workers AI embedded function calling tools.
+// Each skill is self-contained: description, parameters, and the executor function.
+// runWithTools() calls the function inline — no separate ToolExecutor pattern needed.
 
-export interface SkillContext {
-  sql: SqlStorage;
-  env: { DB: D1Database };
-}
+import type { SqlStorage } from '@cloudflare/workers-types';
 
-interface SkillParameters {
-  type: 'object';
-  properties: Record<string, unknown>;
-  required?: string[];
-}
-
-export interface Skill {
+export interface CfTool {
   name: string;
   description: string;
-  parameters: SkillParameters;
-  execute: (args: Record<string, string>, ctx: SkillContext) => Promise<string>;
+  parameters: {
+    type: 'object';
+    properties: Record<string, { type: string; description: string }>;
+    required: string[];
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function: (args: any) => Promise<string>;
 }
 
-export const skills: Skill[] = [
-  {
-    name: 'remember',
-    description: 'Save a fact or piece of information to long-term memory. Use when the user explicitly asks you to remember something, or when you learn something important about them.',
-    parameters: {
-      type: 'object',
-      properties: {
-        key: { type: 'string', description: 'Short identifier for this memory (e.g. "user_name", "preferred_language")' },
-        value: { type: 'string', description: 'The information to remember' },
+export function buildSkills(sql: SqlStorage): CfTool[] {
+  return [
+    {
+      name: 'remember',
+      description: 'Save a fact to long-term memory. Use when the user asks you to remember something or when you learn something important about them.',
+      parameters: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: 'Short identifier, e.g. "user_name" or "preferred_language"' },
+          value: { type: 'string', description: 'The information to remember' },
+        },
+        required: ['key', 'value'],
       },
-      required: ['key', 'value'],
-    },
-    execute: async ({ key, value }, { sql }) => {
-      sql.exec(
-        `INSERT INTO memory (key, value, updated_at) VALUES (?, ?, datetime('now'))
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-        key, value,
-      );
-      return `Remembered: ${key} = ${value}`;
-    },
-  },
-
-  {
-    name: 'recall',
-    description: 'Look up something from long-term memory. Use when you need to retrieve a specific fact you previously saved.',
-    parameters: {
-      type: 'object',
-      properties: {
-        key: { type: 'string', description: 'The memory key to look up' },
+      function: async ({ key, value }: { key: string; value: string }) => {
+        sql.exec(
+          `INSERT INTO memory (key, value, updated_at) VALUES (?, ?, datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+          key, value,
+        );
+        return `Remembered: ${key} = ${value}`;
       },
-      required: ['key'],
     },
-    execute: async ({ key }, { sql }) => {
-      const row = sql.exec<{ value: string }>(`SELECT value FROM memory WHERE key = ?`, key).one();
-      return row ? row.value : `No memory found for key: ${key}`;
-    },
-  },
 
-  {
-    name: 'list_memories',
-    description: 'List all saved memories. Use when the user asks what you remember about them.',
-    parameters: {
-      type: 'object',
-      properties: {},
+    {
+      name: 'recall',
+      description: 'Look up a specific fact from long-term memory.',
+      parameters: {
+        type: 'object',
+        properties: {
+          key: { type: 'string', description: 'The memory key to look up' },
+        },
+        required: ['key'],
+      },
+      function: async ({ key }: { key: string }) => {
+        const row = sql.exec<{ value: string }>(`SELECT value FROM memory WHERE key = ?`, key).toArray()[0];
+        return row ? row.value : `No memory found for key: ${key}`;
+      },
     },
-    execute: async (_args, { sql }) => {
-      const rows = sql.exec<{ key: string; value: string; updated_at: string }>(
-        `SELECT key, value, updated_at FROM memory ORDER BY updated_at DESC LIMIT 20`,
-      ).toArray();
-      if (rows.length === 0) return 'No memories saved yet.';
-      return rows.map(r => `${r.key}: ${r.value}`).join('\n');
-    },
-  },
-];
 
-// Convert skills to Workers AI tool definitions
-export function skillsAsTools() {
-  return skills.map(s => ({
-    type: 'function' as const,
-    function: {
-      name: s.name,
-      description: s.description,
-      parameters: s.parameters,
+    {
+      name: 'list_memories',
+      description: 'List everything saved in long-term memory. Use when the user asks what you remember about them.',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: [],
+      },
+      function: async () => {
+        const rows = sql.exec<{ key: string; value: string }>(
+          `SELECT key, value FROM memory ORDER BY updated_at DESC LIMIT 20`,
+        ).toArray();
+        if (rows.length === 0) return 'No memories saved yet.';
+        return rows.map(r => `${r.key}: ${r.value}`).join('\n');
+      },
     },
-  }));
+  ];
 }

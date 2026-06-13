@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@cloudflare/ai-utils": "^1.0.1",
     "@stackbilt/llm-providers": "^1.16.0",
     "hono": "^4.7.0"
   },
