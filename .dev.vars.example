@@ -1,0 +1,10 @@
+# Copy to .dev.vars and fill in values
+# Never commit .dev.vars
+
+# Telegram
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_SECRET=
+
+# Slack
+SLACK_SIGNING_SECRET=
+SLACK_BOT_TOKEN=

@@ -1,0 +1,21 @@
+{
+  "name": "edgeclaw",
+  "version": "0.1.0",
+  "description": "OpenClaw on Cloudflare Workers — persistent AI assistant via Durable Objects + Workers AI",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@stackbilt/aegis-core": "latest",
+    "hono": "^4.7.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250620.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^4.0.0"
+  }
+}

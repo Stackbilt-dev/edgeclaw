@@ -1,0 +1,30 @@
+name = "edgeclaw"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+compatibility_flags = ["nodejs_compat"]
+
+[ai]
+binding = "AI"
+
+[[durable_objects.bindings]]
+name = "AGENT_SESSION"
+class_name = "AgentSession"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AgentSession"]
+
+[[kv_namespaces]]
+binding = "SKILLS_KV"
+id = ""  # fill after: wrangler kv:namespace create edgeclaw-skills
+
+[vars]
+EDGECLAW_ENV = "production"
+# LLM model for agent turns — Workers AI (free inference)
+WORKERS_AI_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
+
+# Channel env vars — set via: wrangler secret put <NAME>
+# TELEGRAM_BOT_TOKEN   — from @BotFather
+# TELEGRAM_SECRET      — random string you set in setWebhook call
+# SLACK_SIGNING_SECRET — from Slack app config
+# SLACK_BOT_TOKEN      — xoxb-... from Slack app
