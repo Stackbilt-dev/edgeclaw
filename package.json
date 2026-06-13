@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@stackbilt/aegis-core": "latest",
+    "@stackbilt/llm-providers": "^1.16.0",
     "hono": "^4.7.0"
   },
   "devDependencies": {

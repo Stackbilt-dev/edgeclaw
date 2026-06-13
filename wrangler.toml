@@ -14,17 +14,18 @@ class_name = "AgentSession"
 tag = "v1"
 new_sqlite_classes = ["AgentSession"]
 
-[[kv_namespaces]]
-binding = "SKILLS_KV"
-id = ""  # fill after: wrangler kv:namespace create edgeclaw-skills
+[[d1_databases]]
+binding = "DB"
+database_name = "edgeclaw"
+database_id = "445464d8-7032-496a-a732-ce9ad99d4437"
 
 [vars]
 EDGECLAW_ENV = "production"
-# LLM model for agent turns — Workers AI (free inference)
-WORKERS_AI_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
+# Default model — tool calling, 131K context, free on Workers AI
+WORKERS_AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 
-# Channel env vars — set via: wrangler secret put <NAME>
-# TELEGRAM_BOT_TOKEN   — from @BotFather
-# TELEGRAM_SECRET      — random string you set in setWebhook call
-# SLACK_SIGNING_SECRET — from Slack app config
-# SLACK_BOT_TOKEN      — xoxb-... from Slack app
+# Secrets — set via: wrangler secret put <NAME>
+# TELEGRAM_BOT_TOKEN
+# TELEGRAM_SECRET
+# SLACK_SIGNING_SECRET
+# SLACK_BOT_TOKEN
