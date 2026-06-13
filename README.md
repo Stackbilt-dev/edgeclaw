@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" width="180" alt="EdgeClaw" />
+</p>
+
 # EdgeClaw
 
 **OpenClaw on Cloudflare Workers.** Persistent personal AI assistant running on CF Durable Objects + Workers AI — no server, no machine, no SQLite file to babysit.
