@@ -3,7 +3,7 @@
 // SQLite-backed conversation history + memory. LLM via @stackbilt/llm-providers.
 
 import { LLMProviders } from '@stackbilt/llm-providers';
-import { skills, skillsAsTools, type SkillContext } from './skills/index.js';
+import type { SkillContext } from './skills/index.js';
 import type { Env } from './types.js';
 
 const SYSTEM_PROMPT = `You are a persistent personal AI assistant running on Cloudflare's global network.
@@ -41,10 +41,15 @@ export class AgentSession implements DurableObject {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === '/chat' && request.method === 'POST') return this.handleChat(request);
-    if (url.pathname === '/memory' && request.method === 'GET') return this.getMemory();
-    if (url.pathname === '/history' && request.method === 'GET') return this.getHistory();
-    return new Response('Not found', { status: 404 });
+    try {
+      if (url.pathname === '/chat' && request.method === 'POST') return await this.handleChat(request);
+      if (url.pathname === '/memory' && request.method === 'GET') return this.getMemory();
+      if (url.pathname === '/history' && request.method === 'GET') return this.getHistory();
+      return new Response('Not found', { status: 404 });
+    } catch (err) {
+      const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      return Response.json({ error: msg }, { status: 500 });
+    }
   }
 
   private async handleChat(request: Request): Promise<Response> {
@@ -69,48 +74,19 @@ export class AgentSession implements DurableObject {
       { role: 'user' as const, content: message },
     ];
 
+    // Run pre-LLM skill intercepts — pattern-match before spending tokens.
+    // Workers AI sets content=null on tool-call responses, which trips schema validation.
+    const skillCtx: SkillContext = { sql: this.sql, env: this.env };
+    const intercepted = await interceptSkills(message, skillCtx);
+    if (intercepted !== null) {
+      return Response.json({ reply: intercepted, channel, model: 'skill:intercept' });
+    }
+
     const model = this.env.WORKERS_AI_MODEL ?? DEFAULT_MODEL;
     const llm = LLMProviders.fromEnv(this.env as unknown as Record<string, unknown>);
 
-    const skillCtx: SkillContext = { sql: this.sql, env: this.env };
-
-    // Run with tool calling — agent can remember/recall in a single turn
-    let reply = '';
-    const response = await llm.generateResponse({
-      messages,
-      model,
-      maxTokens: 1024,
-      tools: skillsAsTools(),
-    });
-
-    // Execute any tool calls the model made
-    if (response.toolCalls && response.toolCalls.length > 0) {
-      const toolResults: string[] = [];
-      for (const call of response.toolCalls) {
-        const skill = skills.find(s => s.name === call.function.name);
-        if (skill) {
-          const args = typeof call.function.arguments === 'string'
-            ? JSON.parse(call.function.arguments)
-            : call.function.arguments;
-          const result = await skill.execute(args as Record<string, string>, skillCtx);
-          toolResults.push(result);
-        }
-      }
-
-      // Second pass: get final reply with tool results in context
-      const finalResponse = await llm.generateResponse({
-        messages: [
-          ...messages,
-          { role: 'assistant' as const, content: response.message || '' },
-          { role: 'user' as const, content: `Tool results:\n${toolResults.join('\n')}` },
-        ],
-        model,
-        maxTokens: 1024,
-      });
-      reply = finalResponse.message;
-    } else {
-      reply = response.message;
-    }
+    const response = await llm.generateResponse({ messages, model, maxTokens: 512 });
+    const reply = response.message;
 
     // Persist exchange
     this.sql.exec(
@@ -139,4 +115,44 @@ export class AgentSession implements DurableObject {
     ).toArray().reverse();
     return Response.json({ messages: rows });
   }
+}
+
+// Pattern-match common memory operations before spending LLM tokens.
+// Workers AI sets content=null on tool-call responses, tripping schema validation,
+// so we intercept explicit memory commands here instead of using tool calling.
+async function interceptSkills(message: string, ctx: SkillContext): Promise<string | null> {
+  const lower = message.toLowerCase().trim();
+
+  // "remember X is Y" / "remember that X"
+  const rememberMatch = lower.match(/^remember\s+(?:that\s+)?(.+?)\s+is\s+(.+)$/i)
+    ?? message.match(/^remember\s+(?:that\s+)?(.+?)\s+is\s+(.+)$/i);
+  if (rememberMatch) {
+    const key = rememberMatch[1].trim().toLowerCase().replace(/\s+/g, '_');
+    const value = rememberMatch[2].trim();
+    ctx.sql.exec(
+      `INSERT INTO memory (key, value, updated_at) VALUES (?, ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      key, value,
+    );
+    return `Got it — I'll remember that ${rememberMatch[1]} is ${value}.`;
+  }
+
+  // "what do you remember" / "list memories"
+  if (/what do you remember|list memories|what have you remembered/i.test(lower)) {
+    const rows = ctx.sql.exec<{ key: string; value: string }>(
+      `SELECT key, value FROM memory ORDER BY updated_at DESC LIMIT 20`,
+    ).toArray();
+    if (rows.length === 0) return "I don't have anything saved to memory yet.";
+    return `Here's what I remember:\n${rows.map(r => `- ${r.key}: ${r.value}`).join('\n')}`;
+  }
+
+  // "forget X"
+  const forgetMatch = lower.match(/^forget\s+(.+)$/i);
+  if (forgetMatch) {
+    const key = forgetMatch[1].trim().toLowerCase().replace(/\s+/g, '_');
+    ctx.sql.exec(`DELETE FROM memory WHERE key = ?`, key);
+    return `Forgotten: ${key}.`;
+  }
+
+  return null;
 }
